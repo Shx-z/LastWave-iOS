@@ -1,0 +1,89 @@
+name: Build unsigned IPA
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fetch bundled audio
+        run: |
+          mkdir -p LastWave/Audio
+          for i in $(seq 1 12); do
+            echo "downloading track $i"
+            curl -fsSL --retry 4 -o "LastWave/Audio/track-$i.mp3" \
+              "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-$i.mp3"
+          done
+          ls -lh LastWave/Audio
+
+      - name: Generate AppIcon
+        run: python3 scripts/make_icons.py
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned iphoneos
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LastWave.xcodeproj \
+            -scheme LastWave \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath Derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find Derived/Build/Products -name 'LastWave.app' -path '*iphoneos*' | head -1)
+          test -n "$APP"
+          echo "Using $APP"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/LastWave.app
+          rm -rf Payload/LastWave.app/_CodeSignature
+          python3 - <<'PY'
+          import zipfile, os
+          with zipfile.ZipFile("LastWave-unsigned.ipa", "w", zipfile.ZIP_DEFLATED) as z:
+              for root, _, files in os.walk("Payload"):
+                  for f in files:
+                      p = os.path.join(root, f)
+                      z.write(p)
+          print("IPA", os.path.getsize("LastWave-unsigned.ipa"))
+          PY
+          ls -lh LastWave-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-unsigned
+          path: LastWave-unsigned.ipa
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: LastWave 1.0.0 (unsigned)
+          fail_on_unmatched_files: true
+          files: LastWave-unsigned.ipa
+          body: |
+            Unsigned LastWave iOS IPA. Sign it yourself, then install.
+
+            Bundle ID: `app.lastwave.player`
+
+            Sign with Sideloadly, ESign, GBox, Scarlet, AltStore, SideStore, or zsign.
+            Do not install this file raw — iOS will reject an unsigned package.

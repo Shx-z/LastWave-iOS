@@ -1,0 +1,8 @@
+.DS_Store
+Derived/
+build/
+*.ipa
+*.xcarchive
+LastWave.xcodeproj/
+LastWave/Audio/*.mp3
+LastWave/Assets.xcassets/AppIcon.appiconset/icon-*.png
