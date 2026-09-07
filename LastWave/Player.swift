@@ -12,6 +12,32 @@ enum ListFilter: String, CaseIterable {
     case recent, loved, top
 }
 
+enum LyricsStyle: String, Codable, CaseIterable {
+    case appleFluid = "apple-fluid"
+    case karaokePulse = "karaoke-pulse"
+    case kineticSlide = "kinetic-slide"
+    var title: String {
+        switch self {
+        case .appleFluid: return "Apple Fluid"
+        case .karaokePulse: return "Karaoke Pulse"
+        case .kineticSlide: return "Kinetic Slide"
+        }
+    }
+    var hint: String {
+        switch self {
+        case .appleFluid: return "Smooth spring scaling with focal tracking"
+        case .karaokePulse: return "Active line lifts in silver against the rest"
+        case .kineticSlide: return "Lines drift in as the playhead crosses them"
+        }
+    }
+}
+
+struct EqState: Codable, Equatable {
+    var bass: Int = 0
+    var mid: Int = 0
+    var treble: Int = 0
+}
+
 @MainActor
 final class Player: ObservableObject {
     @Published var currentId: String?
@@ -21,6 +47,7 @@ final class Player: ObservableObject {
     @Published var duration: Double = 0
     @Published var playerOpen = false
     @Published var lyricsOpen = false
+    @Published var queueOpen = false
     @Published var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var liked: Set<String> = ["harbor-lights", "pulse", "sun-within"]
@@ -34,32 +61,50 @@ final class Player: ObservableObject {
     @Published var generateProgress: Double = 0
     @Published var generateLabel = ""
     @Published var liquidGlass = true
-    @Published var quality = "Max"
+    @Published var quality = "max"
+    @Published var lyricsStyle: LyricsStyle = .appleFluid
+    @Published var eq = EqState()
+    @Published var sleepMinutes: Int? = nil
 
     var current: Track? { currentId.flatMap(Catalog.track) }
+
+    let qualities: [(id: String, title: String, badge: String, hint: String)] = [
+        ("max", "Max Quality", "24-BIT / 192k", "Up to 24-bit / 192 kHz · Lossless Studio FLAC"),
+        ("hires", "Hi-Res Audio", "24-BIT / 96k", "24-bit / 96 kHz · Lossless Studio FLAC"),
+        ("cd", "CD Lossless", "16-BIT / 44.1k", "16-bit / 44.1 kHz · Lossless CD FLAC"),
+        ("standard", "Standard Quality", "320 kbps", "320 kbps · MP3 (Data Saver)"),
+    ]
+
+    var qualityBadge: String {
+        qualities.first { $0.id == quality }?.badge ?? "24-BIT / 96k"
+    }
 
     private var av = AVPlayer()
     private var timeObs: Any?
     private var endObs: NSObjectProtocol?
     private var scrobbleArmed = true
-    private var ticker: Timer?
+    private var sleepDeadline: Date?
+    private let haptic = UIImpactFeedbackGenerator(style: .soft)
 
     init() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
         try? AVAudioSession.sharedInstance().setActive(true)
         setupRemote()
-        timeObs = av.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] t in
+        timeObs = av.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main) { [weak self] t in
             Task { @MainActor in
-                self?.currentTime = t.seconds
-                if let d = self?.av.currentItem?.duration.seconds, d.isFinite { self?.duration = d }
-                self?.tickScrobble()
-                self?.publishNowPlaying()
+                guard let self else { return }
+                self.currentTime = t.seconds
+                if let d = self.av.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                self.tickScrobble()
+                self.tickSleep()
+                self.publishNowPlaying()
             }
         }
         endObs = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.ended() }
         }
         load()
+        haptic.prepare()
     }
 
     func play(_ id: String, queue q: [String]? = nil) {
@@ -75,6 +120,7 @@ final class Player: ObservableObject {
         av.play()
         playing = true
         bumpRecent(id)
+        haptic.impactOccurred()
     }
 
     func toggle() {
@@ -84,24 +130,28 @@ final class Player: ObservableObject {
         }
         if playing { av.pause() } else { av.play() }
         playing = !playing
+        haptic.impactOccurred()
         publishNowPlaying()
     }
 
     func next() {
+        haptic.impactOccurred()
         guard let id = currentId, let i = queue.firstIndex(of: id) else { return }
         if repeatMode == .one { loadTrack(id); av.play(); playing = true; return }
         let n = i + 1
-        if n < queue.count { loadTrack(queue[n]); av.play(); playing = true }
+        if n < queue.count { loadTrack(queue[n]); av.play(); playing = true; bumpRecent(queue[n]) }
         else if repeatMode == .all, let first = queue.first { loadTrack(first); av.play(); playing = true }
         else { playing = false; av.pause() }
     }
 
     func prev() {
+        haptic.impactOccurred()
         if currentTime > 3 { seek(0); return }
         guard let id = currentId, let i = queue.firstIndex(of: id), i > 0 else { seek(0); return }
         loadTrack(queue[i - 1])
         av.play()
         playing = true
+        bumpRecent(queue[i - 1])
     }
 
     func seek(_ t: Double) {
@@ -141,23 +191,43 @@ final class Player: ObservableObject {
         persist()
     }
 
-    func generateMix() {
+    func playStation(_ ids: [String]) {
+        guard let first = ids.first else { return }
+        play(first, queue: ids)
+        playerOpen = true
+    }
+
+    func setSleep(_ minutes: Int?) {
+        sleepMinutes = minutes
+        if let m = minutes, m > 0 {
+            sleepDeadline = Date().addingTimeInterval(TimeInterval(m * 60))
+        } else {
+            sleepDeadline = nil
+        }
+    }
+
+    func generateMix(seed: String? = nil) {
         generating = true
         generateProgress = 0
-        let labels = ["Reading taste…", "Clustering colors…", "Sequencing night…", "Sealing mix…"]
+        let labels = ["Reading taste…", "Clustering colors…", "Matching Genre DNA…", "Sequencing night…", "Sealing mix…"]
         Task {
             for (i, l) in labels.enumerated() {
                 generateLabel = l
                 generateProgress = Double(i + 1) / Double(labels.count)
-                try? await Task.sleep(nanoseconds: 450_000_000)
+                try? await Task.sleep(nanoseconds: 380_000_000)
             }
-            var ids = Array(liked)
-            if ids.count < 6 { ids += recent }
+            var ids: [String] = []
+            if let seed {
+                ids += Catalog.tracks.filter { $0.genres.contains(seed) }.map(\.id)
+            }
+            ids += Array(liked)
+            ids += recent
             ids += Catalog.tracks.map(\.id)
             var seen = Set<String>()
-            let mix = ids.filter { seen.insert($0).inserted }.prefix(7).map { $0 }
+            let mix = ids.filter { seen.insert($0).inserted }.prefix(12).map { $0 }
             let id = UUID().uuidString
-            playlists.insert(Playlist(id: id, title: "Taste Mix", subtitle: "Generated for you", color: "3d5c68", trackIds: Array(mix), generated: true, createdAt: "Just now"), at: 0)
+            let title = seed.map { "\($0.capitalized) Mix" } ?? "Taste Mix"
+            playlists.insert(Playlist(id: id, title: title, subtitle: "\(mix.count) tracks · generated", color: "3d5c68", trackIds: Array(mix), generated: true, createdAt: "Just now"), at: 0)
             generating = false
             persist()
         }
@@ -176,20 +246,35 @@ final class Player: ObservableObject {
         }
     }
 
+    var genreDNA: [(String, Int)] {
+        var c: [String: Int] = [:]
+        for id in liked { Catalog.track(id)?.genres.forEach { c[$0, default: 0] += 3 } }
+        for id in recent { Catalog.track(id)?.genres.forEach { c[$0, default: 0] += 1 } }
+        if c.isEmpty {
+            return Catalog.genres.prefix(6).map { ($0, 4) }
+        }
+        return c.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
+    }
+
     private func loadTrack(_ id: String) {
         currentId = id
         currentTime = 0
         scrobbleArmed = true
-        lyricsOpen = false
         guard let track = Catalog.track(id) else { return }
         duration = track.duration
         if let url = Bundle.main.url(forResource: track.audioFile, withExtension: "mp3") {
             av.replaceCurrentItem(with: AVPlayerItem(url: url))
-        } else if let url = URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-\(track.audioFile.replacingOccurrences(of: "track-", with: "")).mp3") {
+        } else if let n = track.audioFile.split(separator: "-").last,
+                  let url = URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-\(n).mp3") {
             av.replaceCurrentItem(with: AVPlayerItem(url: url))
         }
+        applyEqVolume()
         publishNowPlaying()
         persist()
+    }
+
+    func applyEqVolume() {
+        av.volume = 1
     }
 
     private func ended() {
@@ -203,6 +288,15 @@ final class Player: ObservableObject {
         scrobbleArmed = false
         scrobbles += 1
         persist()
+    }
+
+    private func tickSleep() {
+        guard let d = sleepDeadline, Date() >= d else { return }
+        sleepDeadline = nil
+        sleepMinutes = nil
+        av.pause()
+        playing = false
+        publishNowPlaying()
     }
 
     private func bumpRecent(_ id: String) {
@@ -229,7 +323,7 @@ final class Player: ObservableObject {
 
     private func publishNowPlaying() {
         guard let t = current else { return }
-        var info: [String: Any] = [
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: t.title,
             MPMediaItemPropertyArtist: Catalog.artistName(t.artistId),
             MPMediaItemPropertyAlbumTitle: Catalog.albumTitle(t.albumId),
@@ -237,11 +331,9 @@ final class Player: ObservableObject {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
         ]
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        _ = info
     }
 
-    private func persist() {
+    func persist() {
         let d = UserDefaults.standard
         d.set(Array(liked), forKey: "liked")
         d.set(Array(downloads), forKey: "downloads")
@@ -251,7 +343,10 @@ final class Player: ObservableObject {
         d.set(shuffle, forKey: "shuffle")
         d.set(repeatMode.rawValue, forKey: "repeat")
         d.set(liquidGlass, forKey: "glass")
+        d.set(quality, forKey: "quality")
+        d.set(lyricsStyle.rawValue, forKey: "lyricsStyle")
         if let data = try? JSONEncoder().encode(playlists) { d.set(data, forKey: "playlists") }
+        if let data = try? JSONEncoder().encode(eq) { d.set(data, forKey: "eq") }
     }
 
     private func load() {
@@ -264,6 +359,9 @@ final class Player: ObservableObject {
         shuffle = d.bool(forKey: "shuffle")
         if let r = d.string(forKey: "repeat"), let m = RepeatMode(rawValue: r) { repeatMode = m }
         if d.object(forKey: "glass") != nil { liquidGlass = d.bool(forKey: "glass") }
+        if let q = d.string(forKey: "quality") { quality = q }
+        if let s = d.string(forKey: "lyricsStyle"), let st = LyricsStyle(rawValue: s) { lyricsStyle = st }
         if let data = d.data(forKey: "playlists"), let p = try? JSONDecoder().decode([Playlist].self, from: data) { playlists = p }
+        if let data = d.data(forKey: "eq"), let e = try? JSONDecoder().decode(EqState.self, from: data) { eq = e }
     }
 }

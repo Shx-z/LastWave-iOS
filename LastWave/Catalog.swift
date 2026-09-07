@@ -158,6 +158,30 @@ enum Catalog {
             "Bloom, collapse, bloom again", "We are the smear, not the bulb", "Hold still and the world draws you",
             "A long exposure of a short life", "The doors chime in a forgotten key", "Step out into ordinary night",
         ]),
+        T("glass-wake", "Glass Wake", "mira", "glass-harbor", "track-13", "6a8b96", ["ambient", "chillout"], "FLAC 24/96", [
+            "Morning is a pane still wet", "A boat leaves a white sentence", "I drink the quiet before the town",
+            "Gulls photocopy the same complaint", "The harbor keeps last night's coins", "Wake means both rising and the trail",
+            "I choose the second meaning", "Glass holds a thinner sun", "Walk until the boards are dry",
+            "Name the light and let it go", "The engine starts two streets away", "We were never the only listeners",
+        ]),
+        T("sodium-hour", "Sodium Hour", "sable", "night-shift", "track-14", "3d5c68", ["noir", "city"], "FLAC 24/96", [
+            "The lamps choose orange on purpose", "Wet asphalt practicing being a river", "A dispatcher coughs into the night",
+            "I know this block by its vending hum", "Sodium hour is not quite dawn", "Taxi meters counting someone else's life",
+            "Keep the window cracked for weather", "A radio two cars over finds the song", "We pretend not to notice",
+            "The city files us under unfinished", "One more cigarette of rain", "Then the shift change, then the light",
+        ]),
+        T("wire-garden", "Wire Garden", "copper", "copper-pulse", "track-15", "b07a4a", ["analog", "synth"], "FLAC 24/96", [
+            "Patch cables blooming on the floor", "A plant that runs on nine volts", "I water it with a slow LFO",
+            "The filter opens like a greenhouse", "Leaves of copper, stems of clock", "Do not quantize the bees",
+            "A sequence finds a vine and climbs", "Hold this voltage, it is alive", "The room smells like warm dust",
+            "I name the patch after a weather", "When it drifts, that is the fruit", "Leave the garden humming overnight",
+        ]),
+        T("pale-radar", "Pale Radar", "optic", "afterimage", "track-16", "9aa4b0", ["minimal", "experimental"], "FLAC 24/192", [
+            "A sweep that never finds the plane", "Pale green on a darkened glass", "I watch for a blip that is a memory",
+            "The antenna listens harder than I do", "Every rotation is a small forgiveness", "Nothing incoming, still we wait",
+            "Radar of a quieter century", "Dust in the fan, dust on the map", "A ping returns as weather",
+            "I calibrate to the empty", "The screen keeps its old patience", "Sign off without turning it down",
+        ]),
     ]
 
     static let seedPlaylists: [Playlist] = [

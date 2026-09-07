@@ -3,7 +3,8 @@
 Native SwiftUI music player. Unsigned IPA — you sign it.
 
 **Bundle ID:** `app.lastwave.player`  
-**Minimum:** iOS 17
+**Minimum:** iOS 17  
+**Version:** 1.1.0
 
 ## Download
 
@@ -18,6 +19,8 @@ Do **not** install the raw IPA. Sign it first:
 - **AltStore / SideStore**
 - **zsign** — `zsign -k cert.p12 -p password -m profile.mobileprovision LastWave-unsigned.ipa`
 
-## What you get
+## 1.1.0
 
-Home, Create (taste mix), Playlists, Search, Discover, Genre DNA, Friends, Settings, Now Playing, synced lyrics, lock-screen controls, background audio. 12-track bundled session (Mira Vale, Lumen Fold, Nara Sol, and others).
+Home, Create (seeded taste mixes), Playlists, Search, Discover charts, Genre DNA, Friends stations, Settings (EQ, lyric styles, quality), Now Playing with wavy seek, queue, sleep timer, AirPlay, synced lyrics, lock-screen controls, background audio. 16-track original session.
+
+YouTube Music / clashflac streaming from the Android app is not in this build.

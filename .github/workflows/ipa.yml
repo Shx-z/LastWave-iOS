@@ -19,7 +19,7 @@ jobs:
       - name: Fetch bundled audio
         run: |
           mkdir -p LastWave/Audio
-          for i in $(seq 1 12); do
+          for i in $(seq 1 16); do
             echo "downloading track $i"
             curl -fsSL --retry 4 -o "LastWave/Audio/track-$i.mp3" \
               "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-$i.mp3"
@@ -76,14 +76,22 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: LastWave 1.0.0 (unsigned)
+          tag_name: v1.1.0
+          name: LastWave 1.1.0 (unsigned)
           fail_on_unmatched_files: true
           files: LastWave-unsigned.ipa
           body: |
-            Unsigned LastWave iOS IPA. Sign it yourself, then install.
+            LastWave iOS 1.1.0 — unsigned IPA. Sign it, then install.
 
             Bundle ID: `app.lastwave.player`
 
+            What's new:
+            - 16-track catalog
+            - Wavy seekbar, play queue, sleep timer, AirPlay route picker
+            - Genre DNA bars + Start Mix
+            - Taste mix seeds, Discover charts
+            - 3 lyric styles, 3-band EQ, quality picker
+            - Friends stations
+
             Sign with Sideloadly, ESign, GBox, Scarlet, AltStore, SideStore, or zsign.
-            Do not install this file raw — iOS will reject an unsigned package.
+
