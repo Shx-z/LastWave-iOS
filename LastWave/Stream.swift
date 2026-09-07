@@ -28,7 +28,9 @@ enum StreamAPI {
         let synced = (arr.first?["syncedLyrics"] as? String) ?? ""
         if synced.isEmpty {
             let plain = (arr.first?["plainLyrics"] as? String) ?? ""
-            return plain.split(separator: "\n").enumerated().map { LyricLine(t: Double($0.offset) * 4, text: String($1)) }
+            return plain.split(separator: "\n").enumerated().map { i, line in
+                LyricLine(t: Double(i) * 4, text: String(line))
+            }
         }
         return parseLRC(synced)
     }
