@@ -76,22 +76,24 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: LastWave 1.1.0 (unsigned)
+          tag_name: v1.2.0
+          name: LastWave 1.2.0 (unsigned)
           fail_on_unmatched_files: true
           files: LastWave-unsigned.ipa
           body: |
-            LastWave iOS 1.1.0 — unsigned IPA. Sign it, then install.
+            LastWave iOS 1.2.0 — unsigned IPA. Sign it, then install.
 
             Bundle ID: `app.lastwave.player`
 
-            What's new:
-            - 16-track catalog
-            - Wavy seekbar, play queue, sleep timer, AirPlay route picker
-            - Genre DNA bars + Start Mix
-            - Taste mix seeds, Discover charts
-            - 3 lyric styles, 3-band EQ, quality picker
-            - Friends stations
+            Streaming + offline downloads:
+            - Live catalog of independent artists (Audius)
+            - Search streams the open catalog
+            - Download saves the audio on-device for offline
+            - Synced lyrics via LRCLIB when available
+            - Original 16-track LastWave session still bundled
+
+            Not included: YouTube Music / clashflac.
 
             Sign with Sideloadly, ESign, GBox, Scarlet, AltStore, SideStore, or zsign.
+
 

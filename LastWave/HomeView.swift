@@ -12,6 +12,7 @@ struct HomeView: View {
                     stats
                     genreCard
                     albums
+                    liveRow
                     filterBar
                     VStack(spacing: 0) {
                         ForEach(player.listIds, id: \.self) { id in
@@ -23,6 +24,7 @@ struct HomeView: View {
             }
             .background(LW.bg)
             .navigationBarHidden(true)
+            .task { if player.trending.isEmpty { await player.loadTrending() } }
             .navigationDestination(for: String.self) { key in
                 dest(key)
             }
@@ -103,6 +105,39 @@ struct HomeView: View {
                 }
             }
             .padding(.horizontal, 16)
+        }
+    }
+
+    var liveRow: some View {
+        Group {
+            if !player.trending.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Streaming now").font(.system(size: 20, weight: .semibold)).foregroundStyle(LW.fg)
+                        Spacer()
+                        Text("Live").font(.caption.weight(.semibold)).foregroundStyle(LW.tint)
+                    }
+                    .padding(.horizontal, 16)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(player.trending.prefix(16)) { t in
+                                Button { player.play(t.id, queue: player.trending.map(\.id)) } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        CoverView(color: t.color, title: t.title, corner: 12, artworkURL: t.artworkURL)
+                                            .frame(width: 132, height: 132)
+                                        Text(t.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(LW.fg).lineLimit(1)
+                                        Text(t.displayArtist).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
+                                    }
+                                    .frame(width: 132)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
     }
 

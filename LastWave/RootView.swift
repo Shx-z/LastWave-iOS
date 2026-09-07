@@ -83,11 +83,11 @@ struct MiniPlayer: View {
         if let t = player.current {
             Button { player.playerOpen = true } label: {
                 HStack(spacing: 12) {
-                    CoverView(color: t.color, title: t.title, corner: 8)
+                    CoverView(color: t.color, title: t.title, corner: 8, artworkURL: t.artworkURL)
                         .frame(width: 44, height: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(LW.fg).lineLimit(1)
-                        Text(Catalog.artistName(t.artistId)).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
+                        Text(t.displayArtist).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
                     }
                     Spacer(minLength: 8)
                     Button {
@@ -122,22 +122,29 @@ struct TrackRow: View {
     var body: some View {
         if let t = Catalog.track(id) {
             Button {
-                player.play(id, queue: queue ?? Catalog.tracks.map(\.id))
+                player.play(id, queue: queue ?? (player.trending.map(\.id) + Catalog.tracks.map(\.id)))
             } label: {
                 HStack(spacing: 12) {
-                    CoverView(color: t.color, title: t.title, corner: 8)
+                    CoverView(color: t.color, title: t.title, corner: 8, artworkURL: t.artworkURL)
                         .frame(width: 48, height: 48)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.title)
                             .font(.system(size: 16, weight: player.currentId == id ? .semibold : .regular))
                             .foregroundStyle(player.currentId == id ? LW.tint : LW.fg)
                             .lineLimit(1)
-                        Text("\(Catalog.artistName(t.artistId)) · \(t.quality)")
+                        Text("\(t.displayArtist) · \(t.quality)")
                             .font(.system(size: 12))
                             .foregroundStyle(LW.muted)
                             .lineLimit(1)
                     }
                     Spacer()
+                    if player.downloading.contains(id) {
+                        ProgressView().tint(LW.accent).frame(width: 36, height: 44)
+                    } else if player.isOffline(id) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(LW.tint)
+                    }
                     Button {
                         player.toggleLike(id)
                     } label: {
@@ -155,7 +162,7 @@ struct TrackRow: View {
             .buttonStyle(.plain)
             .contextMenu {
                 Button { player.toggleLike(id) } label: { Label(player.liked.contains(id) ? "Unlike" : "Love", systemImage: "heart") }
-                Button { player.toggleDownload(id) } label: { Label(player.downloads.contains(id) ? "Remove download" : "Download", systemImage: "arrow.down.circle") }
+                Button { player.toggleDownload(id) } label: { Label(player.isOffline(id) ? "Remove download" : "Download for offline", systemImage: "arrow.down.circle") }
                 ForEach(player.playlists) { p in
                     Button { player.addToPlaylist(p.id, track: id) } label: { Label("Add to \(p.title)", systemImage: "plus") }
                 }

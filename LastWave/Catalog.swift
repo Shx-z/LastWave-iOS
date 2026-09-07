@@ -1,6 +1,6 @@
 import Foundation
 
-struct LyricLine: Hashable {
+struct LyricLine: Hashable, Codable {
     let t: Double
     let text: String
 }
@@ -22,7 +22,7 @@ struct Album: Identifiable, Hashable {
     let color: String
 }
 
-struct Track: Identifiable, Hashable {
+struct Track: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let artistId: String
@@ -32,7 +32,13 @@ struct Track: Identifiable, Hashable {
     let genres: [String]
     let quality: String
     let color: String
-    let lyrics: [LyricLine]
+    var lyrics: [LyricLine]
+    var streamURL: String? = nil
+    var artworkURL: String? = nil
+    var artistLabel: String? = nil
+    var remote: Bool = false
+
+    var displayArtist: String { artistLabel ?? Catalog.artistName(artistId) }
 }
 
 struct Playlist: Identifiable, Hashable, Codable {
@@ -204,14 +210,31 @@ enum Catalog {
     static let profileName = "Shihas"
     static let profileHandle = "shihas"
 
-    static func track(_ id: String) -> Track? { tracks.first { $0.id == id } }
+    static var cloud: [String: Track] = [:]
+
+    static func ingest(_ list: [Track]) {
+        for t in list { cloud[t.id] = t }
+    }
+
+    static func track(_ id: String) -> Track? { tracks.first { $0.id == id } ?? cloud[id] }
     static func artist(_ id: String) -> Artist? { artists.first { $0.id == id } }
     static func album(_ id: String) -> Album? { albums.first { $0.id == id } }
-    static func artistName(_ id: String) -> String { artist(id)?.name ?? "Unknown" }
-    static func albumTitle(_ id: String) -> String { album(id)?.title ?? "" }
+    static func artistName(_ id: String) -> String {
+        if let a = artist(id) { return a.name }
+        if let t = cloud[id] { return t.artistLabel ?? "Unknown" }
+        if let t = cloud.values.first(where: { $0.artistId == id }) { return t.artistLabel ?? "Unknown" }
+        return "Unknown"
+    }
+    static func albumTitle(_ id: String) -> String { album(id)?.title ?? (id == "audius" ? "Audius" : "") }
     static func tracks(album id: String) -> [Track] { tracks.filter { $0.albumId == id } }
     static func tracks(artist id: String) -> [Track] { tracks.filter { $0.artistId == id } }
     static func albums(artist id: String) -> [Album] { albums.filter { $0.artistId == id } }
+
+    static func color(for id: String) -> String {
+        let palette = ["6a8b96", "4a7a88", "c4a46a", "8a6a62", "3d5c68", "b07a4a", "6a7d70", "8a5a42", "8a8680", "9aa4b0"]
+        let i = abs(id.hashValue) % palette.count
+        return palette[i]
+    }
 
     private static func T(_ id: String, _ title: String, _ artist: String, _ album: String, _ file: String, _ color: String, _ genres: [String], _ quality: String, _ lyrics: [String]) -> Track {
         Track(id: id, title: title, artistId: artist, albumId: album, audioFile: file, duration: 95, genres: genres, quality: quality, color: color, lyrics: L(lyrics))

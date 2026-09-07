@@ -29,29 +29,43 @@ struct CoverView: View {
     let color: String
     let title: String
     var corner: CGFloat = 10
+    var artworkURL: String? = nil
 
     var body: some View {
         let c = Color(hex: color)
-        RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [c.opacity(0.95), Color.black.opacity(0.72), c.opacity(0.35)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+        ZStack {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [c.opacity(0.95), Color.black.opacity(0.72), c.opacity(0.35)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                 )
-            )
-            .overlay(alignment: .bottomLeading) {
+            if let artworkURL, let url = URL(string: artworkURL) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill()
+                    default:
+                        EmptyView()
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            } else {
                 Text(title)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(2)
                     .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: corner, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-            )
-            .clipped()
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .clipped()
     }
 }
 

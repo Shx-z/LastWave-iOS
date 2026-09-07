@@ -25,7 +25,7 @@ struct NowPlayingView: View {
                         Spacer()
                         Menu {
                             Button { player.toggleLike(t.id) } label: { Label(player.liked.contains(t.id) ? "Unlike" : "Love", systemImage: "heart") }
-                            Button { player.toggleDownload(t.id) } label: { Label(player.downloads.contains(t.id) ? "Remove download" : "Download Max Quality", systemImage: "arrow.down.circle") }
+                            Button { player.toggleDownload(t.id) } label: { Label(player.isOffline(t.id) ? "Remove download" : "Download for offline", systemImage: "arrow.down.circle") }
                             Button { player.queueOpen = true } label: { Label("Play queue", systemImage: "list.bullet") }
                             Menu("Sleep timer") {
                                 Button("Off") { player.setSleep(nil) }
@@ -42,7 +42,7 @@ struct NowPlayingView: View {
                     if player.lyricsOpen {
                         LyricsView(track: t).frame(maxHeight: .infinity)
                     } else {
-                        CoverView(color: t.color, title: t.title, corner: 24)
+                        CoverView(color: t.color, title: t.title, corner: 24, artworkURL: t.artworkURL)
                             .aspectRatio(1, contentMode: .fit)
                             .padding(.horizontal, 28)
                             .shadow(color: .black.opacity(0.4), radius: 30, y: 16)
@@ -57,7 +57,7 @@ struct NowPlayingView: View {
                                     .foregroundStyle(player.liked.contains(t.id) ? Color(hex: "c45c5c") : LW.fg)
                             }
                         }
-                        Text(Catalog.artistName(t.artistId)).font(.system(size: 16)).foregroundStyle(LW.muted)
+                        Text(t.displayArtist).font(.system(size: 16)).foregroundStyle(LW.muted)
                     }
                     .padding(.horizontal, 28)
 
@@ -128,6 +128,9 @@ struct NowPlayingView: View {
             }
         }
         .buttonStyle(.plain)
+        .onChange(of: player.lyricsOpen) { _, on in
+            if on, let id = player.currentId { Task { await player.fetchLyricsIfNeeded(id) } }
+        }
         .sheet(isPresented: $player.queueOpen) {
             QueueView().environmentObject(player).presentationDetents([.medium, .large]).preferredColorScheme(.dark)
         }
@@ -193,10 +196,10 @@ struct QueueView: View {
                     Button { player.play(id, queue: player.queue) } label: {
                         HStack {
                             if let t = Catalog.track(id) {
-                                CoverView(color: t.color, title: t.title, corner: 6).frame(width: 40, height: 40)
+                                CoverView(color: t.color, title: t.title, corner: 6, artworkURL: t.artworkURL).frame(width: 40, height: 40)
                                 VStack(alignment: .leading) {
                                     Text(t.title).foregroundStyle(player.currentId == id ? LW.tint : LW.fg)
-                                    Text(Catalog.artistName(t.artistId)).font(.caption).foregroundStyle(LW.muted)
+                                    Text(t.displayArtist).font(.caption).foregroundStyle(LW.muted)
                                 }
                             }
                             Spacer()

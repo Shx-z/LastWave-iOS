@@ -126,26 +126,52 @@ struct FlexibleWrap: Layout {
 struct SearchView: View {
     @EnvironmentObject var player: Player
     @State private var q = ""
+    @State private var hits: [Track] = []
+    @State private var searching = false
 
-    var results: [Track] {
+    var local: [Track] {
         let s = q.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if s.isEmpty { return Catalog.tracks }
         return Catalog.tracks.filter {
             $0.title.lowercased().contains(s)
-                || Catalog.artistName($0.artistId).lowercased().contains(s)
+                || $0.displayArtist.lowercased().contains(s)
                 || Catalog.albumTitle($0.albumId).lowercased().contains(s)
         }
     }
 
+    var results: [Track] {
+        let s = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return player.trending.isEmpty ? Catalog.tracks : player.trending }
+        var seen = Set<String>()
+        return (hits + local).filter { seen.insert($0.id).inserted }
+    }
+
     var body: some View {
         VStack(spacing: 12) {
-            TextField("Search songs, artists, albums", text: $q)
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 14).fill(LW.elevated))
-                .foregroundStyle(LW.fg)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            HStack {
+                TextField("Search songs, artists, albums", text: $q)
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(LW.elevated))
+                    .foregroundStyle(LW.fg)
+                    .onSubmit { Task { await runSearch() } }
+                    .onChange(of: q) { _, n in
+                        Task {
+                            try? await Task.sleep(nanoseconds: 350_000_000)
+                            if n == q { await runSearch() }
+                        }
+                    }
+                if searching { ProgressView().tint(LW.accent) }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
             ScrollView {
+                if q.isEmpty {
+                    Text(player.streamReady ? "Live catalog · independent artists" : "LastWave session")
+                        .font(.caption)
+                        .foregroundStyle(LW.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                }
                 ForEach(results) { t in
                     TrackRow(id: t.id, queue: results.map(\.id))
                 }
@@ -154,6 +180,15 @@ struct SearchView: View {
         .background(LW.bg)
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
+        .task { if player.trending.isEmpty { await player.loadTrending() } }
+    }
+
+    func runSearch() async {
+        let s = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.count >= 2 else { hits = []; return }
+        searching = true
+        hits = await player.searchCloud(s)
+        searching = false
     }
 }
 
@@ -162,6 +197,21 @@ struct DiscoverView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                if !player.trending.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Streaming now").font(.headline).foregroundStyle(LW.fg)
+                            Spacer()
+                            Text("Live").font(.caption.weight(.semibold)).foregroundStyle(LW.tint)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        ForEach(player.trending.prefix(10)) { t in
+                            TrackRow(id: t.id, queue: player.trending.map(\.id))
+                        }
+                    }
+                }
+
                 if let loved = player.liked.first, let t = Catalog.track(loved) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Because you loved \(t.title)").font(.headline).foregroundStyle(LW.fg)
@@ -208,6 +258,7 @@ struct DiscoverView: View {
         .background(LW.bg)
         .navigationTitle("Discover")
         .navigationBarTitleDisplayMode(.inline)
+        .task { if player.trending.isEmpty { await player.loadTrending() } }
     }
 }
 
@@ -428,9 +479,9 @@ struct SettingsView: View {
                 LabeledContent("Loved", value: "\(player.liked.count)")
             }
             Section("About") {
-                LabeledContent("Version", value: "1.1.0")
+                LabeledContent("Version", value: "1.2.0")
                 LabeledContent("Bundle", value: "app.lastwave.player")
-                Text("Native iOS player. Catalog is an original session — not YouTube Music / clashflac.")
+                Text("Streams independent artists (Audius). Downloads save the audio on this iPhone. Not YouTube Music or clashflac.")
                     .font(.footnote)
                     .foregroundStyle(LW.muted)
             }
@@ -459,17 +510,27 @@ struct SettingsView: View {
 struct DownloadsView: View {
     @EnvironmentObject var player: Player
     var body: some View {
-        let ids = Array(player.downloads)
+        let ids = Catalog.tracks.map(\.id).filter { player.isOffline($0) }
+            + Catalog.cloud.keys.filter { DownloadsFS.exists($0) }
+        let unique = Array(Set(ids))
         ScrollView {
-            if ids.isEmpty {
-                Text("Downloaded tracks stay here for offline listening.")
-                    .foregroundStyle(LW.muted)
-                    .padding(.top, 80)
+            if unique.isEmpty {
+                VStack(spacing: 8) {
+                    Text("Nothing offline yet")
+                        .font(.headline)
+                        .foregroundStyle(LW.fg)
+                        .padding(.top, 80)
+                    Text("Stream a track, then tap Download. Files save on this iPhone and play with no network.")
+                        .font(.subheadline)
+                        .foregroundStyle(LW.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
             } else {
-                PlayAllButton(ids: ids).padding(16)
-                ForEach(ids, id: \.self) { id in
+                PlayAllButton(ids: unique).padding(16)
+                ForEach(unique, id: \.self) { id in
                     HStack {
-                        TrackRow(id: id, queue: ids)
+                        TrackRow(id: id, queue: unique)
                         Button { player.toggleDownload(id) } label: {
                             Image(systemName: "trash").foregroundStyle(Color(hex: "c45c5c")).frame(width: 44, height: 44)
                         }

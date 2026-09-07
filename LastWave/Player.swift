@@ -65,6 +65,9 @@ final class Player: ObservableObject {
     @Published var lyricsStyle: LyricsStyle = .appleFluid
     @Published var eq = EqState()
     @Published var sleepMinutes: Int? = nil
+    @Published var trending: [Track] = []
+    @Published var downloading: Set<String> = []
+    @Published var streamReady = false
 
     var current: Track? { currentId.flatMap(Catalog.track) }
 
@@ -105,6 +108,7 @@ final class Player: ObservableObject {
         }
         load()
         haptic.prepare()
+        Task { await loadTrending() }
     }
 
     func play(_ id: String, queue q: [String]? = nil) {
@@ -174,8 +178,66 @@ final class Player: ObservableObject {
     }
 
     func toggleDownload(_ id: String) {
-        if downloads.contains(id) { downloads.remove(id) } else { downloads.insert(id) }
+        if DownloadsFS.exists(id) {
+            DownloadsFS.remove(id)
+            downloads.remove(id)
+            persist()
+            return
+        }
+        guard let t = Catalog.track(id) else { return }
+        if !t.remote {
+            if downloads.contains(id) { downloads.remove(id) } else { downloads.insert(id) }
+            persist()
+            return
+        }
+        Task { await downloadRemote(id) }
+    }
+
+    func isOffline(_ id: String) -> Bool {
+        DownloadsFS.exists(id) || (downloads.contains(id) && !(Catalog.track(id)?.remote ?? false))
+    }
+
+    func loadTrending() async {
+        let list = await StreamAPI.trending()
+        Catalog.ingest(list)
+        trending = list
+        streamReady = true
         persist()
+    }
+
+    func searchCloud(_ q: String) async -> [Track] {
+        let hits = await StreamAPI.search(q)
+        Catalog.ingest(hits)
+        persist()
+        return hits
+    }
+
+    func fetchLyricsIfNeeded(_ id: String) async {
+        guard var t = Catalog.track(id), t.lyrics.isEmpty else { return }
+        let lines = await StreamAPI.lyrics(title: t.title, artist: t.displayArtist)
+        guard !lines.isEmpty else { return }
+        t.lyrics = lines
+        Catalog.cloud[id] = t
+        if currentId == id { objectWillChange.send() }
+    }
+
+    private func downloadRemote(_ id: String) async {
+        guard let t = Catalog.track(id),
+              let s = t.streamURL,
+              let url = URL(string: s) else { return }
+        downloading.insert(id)
+        defer { downloading.remove(id) }
+        do {
+            let (tmp, resp) = try await URLSession.shared.download(from: url)
+            guard let http = resp as? HTTPURLResponse, (200..<400).contains(http.statusCode) else { return }
+            let dest = DownloadsFS.file(for: id)
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.moveItem(at: tmp, to: dest)
+            downloads.insert(id)
+            persist()
+        } catch {
+            // keep UI quiet — retry from the row
+        }
     }
 
     func createPlaylist(title: String, tracks ids: [String] = []) -> String {
@@ -222,6 +284,7 @@ final class Player: ObservableObject {
             }
             ids += Array(liked)
             ids += recent
+            ids += trending.map(\.id)
             ids += Catalog.tracks.map(\.id)
             var seen = Set<String>()
             let mix = ids.filter { seen.insert($0).inserted }.prefix(12).map { $0 }
@@ -262,15 +325,19 @@ final class Player: ObservableObject {
         scrobbleArmed = true
         guard let track = Catalog.track(id) else { return }
         duration = track.duration
-        if let url = Bundle.main.url(forResource: track.audioFile, withExtension: "mp3") {
+        if DownloadsFS.exists(id) {
+            av.replaceCurrentItem(with: AVPlayerItem(url: DownloadsFS.file(for: id)))
+        } else if !track.audioFile.isEmpty, let url = Bundle.main.url(forResource: track.audioFile, withExtension: "mp3") {
             av.replaceCurrentItem(with: AVPlayerItem(url: url))
-        } else if let n = track.audioFile.split(separator: "-").last,
-                  let url = URL(string: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-\(n).mp3") {
+        } else if let s = track.streamURL, let url = URL(string: s) {
             av.replaceCurrentItem(with: AVPlayerItem(url: url))
         }
         applyEqVolume()
         publishNowPlaying()
         persist()
+        if track.lyrics.isEmpty {
+            Task { await fetchLyricsIfNeeded(id) }
+        }
     }
 
     func applyEqVolume() {
@@ -347,6 +414,7 @@ final class Player: ObservableObject {
         d.set(lyricsStyle.rawValue, forKey: "lyricsStyle")
         if let data = try? JSONEncoder().encode(playlists) { d.set(data, forKey: "playlists") }
         if let data = try? JSONEncoder().encode(eq) { d.set(data, forKey: "eq") }
+        if let data = try? JSONEncoder().encode(Array(Catalog.cloud.values)) { d.set(data, forKey: "cloud") }
     }
 
     private func load() {
@@ -363,5 +431,8 @@ final class Player: ObservableObject {
         if let s = d.string(forKey: "lyricsStyle"), let st = LyricsStyle(rawValue: s) { lyricsStyle = st }
         if let data = d.data(forKey: "playlists"), let p = try? JSONDecoder().decode([Playlist].self, from: data) { playlists = p }
         if let data = d.data(forKey: "eq"), let e = try? JSONDecoder().decode(EqState.self, from: data) { eq = e }
+        if let data = d.data(forKey: "cloud"), let extra = try? JSONDecoder().decode([Track].self, from: data) {
+            Catalog.ingest(extra)
+        }
     }
 }
