@@ -4,15 +4,21 @@ struct LibraryView: View {
     @EnvironmentObject var player: Player
     @State private var path = NavigationPath()
     @State private var newName = ""
+    @State private var importText = ""
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        Text("Playlists")
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundStyle(LW.fg)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Playlists")
+                                .font(.system(size: 32, weight: .semibold))
+                                .foregroundStyle(LW.fg)
+                            Text("\(player.playlists.count) Playlists · \(player.playlists.reduce(0) { $0 + $1.trackIds.count }) Tracks")
+                                .font(.system(size: 13))
+                                .foregroundStyle(LW.muted)
+                        }
                         Spacer()
                     }
                     .padding(.horizontal, 16)
@@ -40,20 +46,71 @@ struct LibraryView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
-                        ForEach(player.playlists) { p in
-                            Button { path.append("playlist:\(p.id)") } label: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    CoverView(color: p.color, title: p.title, corner: 14)
-                                        .aspectRatio(1, contentMode: .fit)
-                                    Text(p.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(LW.fg).lineLimit(1)
-                                    Text(p.subtitle).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextEditor(text: $importText)
+                            .frame(height: 72)
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(LW.elevated))
+                            .foregroundStyle(LW.fg)
+                            .scrollContentBackground(.hidden)
+                        Button(player.importBusy ? "Matching tracks…" : "Import playlist") {
+                            Task {
+                                if let id = await player.importPlaylist(raw: importText) {
+                                    importText = ""
+                                    path.append("playlist:\(id)")
                                 }
                             }
-                            .buttonStyle(.plain)
                         }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LW.fg)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(LW.chip))
+                        .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || player.importBusy)
                     }
                     .padding(.horizontal, 16)
+
+                    Button { path.append("downloads") } label: {
+                        HStack {
+                            Image(systemName: "arrow.down.circle").foregroundStyle(LW.tint)
+                            Text("Downloads").foregroundStyle(LW.fg)
+                            Spacer()
+                            Text("\(player.downloads.count) songs").foregroundStyle(LW.muted)
+                        }
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(LW.chip))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+
+                    VStack(spacing: 6) {
+                        ForEach(player.playlists) { p in
+                            HStack(spacing: 12) {
+                                Button { path.append("playlist:\(p.id)") } label: {
+                                    HStack(spacing: 12) {
+                                        CoverView(color: p.color, title: p.title, corner: 12)
+                                            .frame(width: 56, height: 56)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(p.title).font(.system(size: 16, weight: .medium)).foregroundStyle(LW.fg).lineLimit(1)
+                                            Text("\(p.trackIds.count) tracks · \(p.createdAt)").font(.system(size: 12)).foregroundStyle(LW.muted)
+                                        }
+                                        Spacer()
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                if let first = p.trackIds.first {
+                                    Button { player.play(first, queue: p.trackIds) } label: {
+                                        Image(systemName: "play.fill").foregroundStyle(LW.fg)
+                                            .frame(width: 44, height: 44)
+                                            .background(Circle().fill(LW.chip))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 4)
+                        }
+                    }
                     .padding(.bottom, 24)
                 }
             }
@@ -61,6 +118,7 @@ struct LibraryView: View {
             .navigationBarHidden(true)
             .navigationDestination(for: String.self) { key in
                 if key.hasPrefix("playlist:") { PlaylistView(id: String(key.dropFirst(9))) }
+                else if key == "downloads" { DownloadsView() }
             }
         }
     }

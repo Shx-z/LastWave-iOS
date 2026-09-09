@@ -76,21 +76,22 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.0
-          name: LastWave 1.2.0 (unsigned)
+          tag_name: v4.0.0
+          name: LastWave 4.0.0 (unsigned)
           fail_on_unmatched_files: true
           files: LastWave-unsigned.ipa
           body: |
-            LastWave iOS 1.2.0 — unsigned IPA. Sign it, then install.
+            LastWave iOS 4.0.0 — unsigned IPA. Sign it, then install.
 
             Bundle ID: `app.lastwave.player`
 
-            Streaming + offline downloads:
-            - Live catalog of independent artists (Audius)
-            - Search streams the open catalog
-            - Download saves the audio on-device for offline
-            - Synced lyrics via LRCLIB when available
-            - Original 16-track LastWave session still bundled
+            Matches LastWave Native 4.0.0 surfaces:
+            - Personalized feed: Listen Again, Quick Picks, Albums for You, infinite New Releases
+            - Word-by-word karaoke lyrics, fullscreen mode, RTL/Arabic support (8 styles)
+            - Friend profiles with live listening, recent scrobbles, top artists, compatibility
+            - Redesigned Downloads: Songs / Albums / Artists with storage info
+            - Playlist CSV/M3U import
+            - Live independent catalog (Audius) + offline downloads + LRCLIB lyrics
 
             Not included: YouTube Music / clashflac.
 

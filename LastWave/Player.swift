@@ -16,11 +16,21 @@ enum LyricsStyle: String, Codable, CaseIterable {
     case appleFluid = "apple-fluid"
     case karaokePulse = "karaoke-pulse"
     case kineticSlide = "kinetic-slide"
+    case wordSpotlight = "word-spotlight"
+    case rtlCascade = "rtl-cascade"
+    case fullscreenFocus = "fullscreen-focus"
+    case driftFade = "drift-fade"
+    case pulseWave = "pulse-wave"
     var title: String {
         switch self {
         case .appleFluid: return "Apple Fluid"
         case .karaokePulse: return "Karaoke Pulse"
         case .kineticSlide: return "Kinetic Slide"
+        case .wordSpotlight: return "Word Spotlight"
+        case .rtlCascade: return "RTL Cascade"
+        case .fullscreenFocus: return "Fullscreen Focus"
+        case .driftFade: return "Drift Fade"
+        case .pulseWave: return "Pulse Wave"
         }
     }
     var hint: String {
@@ -28,6 +38,11 @@ enum LyricsStyle: String, Codable, CaseIterable {
         case .appleFluid: return "Smooth spring scaling with focal tracking"
         case .karaokePulse: return "Active line lifts in silver against the rest"
         case .kineticSlide: return "Lines drift in as the playhead crosses them"
+        case .wordSpotlight: return "Word-by-word karaoke with timed highlights"
+        case .rtlCascade: return "Arabic and Hebrew lines flow right-to-left"
+        case .fullscreenFocus: return "One line at a time, cinematic"
+        case .driftFade: return "Past lines dissolve, future stays quiet"
+        case .pulseWave: return "Beat-synced scale on the singing line"
         }
     }
 }
@@ -62,12 +77,16 @@ final class Player: ObservableObject {
     @Published var generateLabel = ""
     @Published var liquidGlass = true
     @Published var quality = "max"
-    @Published var lyricsStyle: LyricsStyle = .appleFluid
+    @Published var lyricsStyle: LyricsStyle = .wordSpotlight
     @Published var eq = EqState()
     @Published var sleepMinutes: Int? = nil
     @Published var trending: [Track] = []
     @Published var downloading: Set<String> = []
     @Published var streamReady = false
+    @Published var releases: [Track] = []
+    @Published var releasesDone = false
+    @Published var lyricsFull = false
+    @Published var importBusy = false
 
     var current: Track? { currentId.flatMap(Catalog.track) }
 
@@ -203,6 +222,34 @@ final class Player: ObservableObject {
         trending = list
         streamReady = true
         persist()
+    }
+
+    func loadMoreReleases() async {
+        if releasesDone { return }
+        let list = await StreamAPI.trending(limit: 16, offset: releases.count, time: "month")
+        Catalog.ingest(list)
+        if list.isEmpty { releasesDone = true; return }
+        releases += list
+        persist()
+    }
+
+    func importPlaylist(raw: String) async -> String? {
+        importBusy = true
+        defer { importBusy = false }
+        let lines = raw.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") && !$0.lowercased().hasPrefix("http") }
+        var ids: [String] = []
+        for line in lines.prefix(20) {
+            let title = line.split { $0 == "," || $0 == "-" || $0 == "–" }.map(String.init).last?.trimmingCharacters(in: .whitespaces) ?? line
+            let hits = await StreamAPI.search(title, limit: 3)
+            Catalog.ingest(hits)
+            if let first = hits.first { ids.append(first.id) }
+        }
+        guard !ids.isEmpty else { return nil }
+        let id = UUID().uuidString
+        playlists.insert(Playlist(id: id, title: "Imported Playlist", subtitle: "\(ids.count) tracks · imported", color: "8a6a82", trackIds: ids, generated: false, createdAt: "Just now"), at: 0)
+        persist()
+        return id
     }
 
     func searchCloud(_ q: String) async -> [Track] {
@@ -392,7 +439,7 @@ final class Player: ObservableObject {
         guard let t = current else { return }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: t.title,
-            MPMediaItemPropertyArtist: Catalog.artistName(t.artistId),
+            MPMediaItemPropertyArtist: t.displayArtist,
             MPMediaItemPropertyAlbumTitle: Catalog.albumTitle(t.albumId),
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,

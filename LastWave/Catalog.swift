@@ -59,6 +59,8 @@ struct Friend: Identifiable, Hashable {
     let nowPlayingId: String
     let scrobbles: Int
     let topTrackIds: [String]
+    let recentIds: [String]
+    let topArtistIds: [String]
     let bio: String
 }
 
@@ -200,9 +202,9 @@ enum Catalog {
     ]
 
     static let friends: [Friend] = [
-        .init(id: "kai", name: "Kai North", handle: "kai.north", color: "8a8680", nowPlayingId: "pulse", scrobbles: 4821, topTrackIds: ["pulse", "ribbon-steel", "patchbay", "monsoon-static"], bio: "Malmö. Collects hinges and kick drums."),
-        .init(id: "juniper", name: "Juniper Hale", handle: "juniper", color: "6a7d70", nowPlayingId: "receding-names", scrobbles: 3102, topTrackIds: ["receding-names", "blue-hour", "sun-within", "harbor-lights"], bio: "Writes the names the water erases."),
-        .init(id: "rafi", name: "Rafi Wave", handle: "rafi.wave", color: "8a6a62", nowPlayingId: "late-signal", scrobbles: 7640, topTrackIds: ["late-signal", "after-rain", "ember-line", "tunnel-bloom"], bio: "Still on the night shift."),
+        .init(id: "kai", name: "Kai North", handle: "kai.north", color: "8a8680", nowPlayingId: "pulse", scrobbles: 4821, topTrackIds: ["pulse", "ribbon-steel", "patchbay", "monsoon-static"], recentIds: ["pulse", "ribbon-steel", "tunnel-bloom"], topArtistIds: ["optic", "lumen", "copper"], bio: "Malmö. Collects hinges and kick drums."),
+        .init(id: "juniper", name: "Juniper Hale", handle: "juniper", color: "6a7d70", nowPlayingId: "receding-names", scrobbles: 3102, topTrackIds: ["receding-names", "blue-hour", "sun-within", "harbor-lights"], recentIds: ["receding-names", "blue-hour", "glass-wake"], topArtistIds: ["tide", "mira", "nara"], bio: "Writes the names the water erases."),
+        .init(id: "rafi", name: "Rafi Wave", handle: "rafi.wave", color: "8a6a62", nowPlayingId: "late-signal", scrobbles: 7640, topTrackIds: ["late-signal", "after-rain", "ember-line", "tunnel-bloom"], recentIds: ["late-signal", "after-rain", "sodium-hour"], topArtistIds: ["sable", "ash", "optic"], bio: "Still on the night shift."),
     ]
 
     static let genres = ["ambient", "electronic", "new age", "noir", "analog", "folk", "desert", "chillout", "world", "minimal", "experimental", "city"]
@@ -234,6 +236,18 @@ enum Catalog {
         let palette = ["6a8b96", "4a7a88", "c4a46a", "8a6a62", "3d5c68", "b07a4a", "6a7d70", "8a5a42", "8a8680", "9aa4b0"]
         let i = abs(id.hashValue) % palette.count
         return palette[i]
+    }
+
+    static func compatibility(friend: Friend, liked: Set<String>, recent: [String]) -> Int {
+        let mine = liked.union(recent.prefix(12))
+        let theirs = Set(friend.topTrackIds + friend.recentIds)
+        let hit = theirs.filter { mine.contains($0) }.count
+        var myG = Set<String>(), theirG = Set<String>()
+        for id in mine { track(id)?.genres.forEach { myG.insert($0) } }
+        for id in theirs { track(id)?.genres.forEach { theirG.insert($0) } }
+        let gHit = theirG.filter { myG.contains($0) }.count
+        let score = 38 + Int(Double(hit) / Double(max(theirs.count, 1)) * 32) + Int(Double(gHit) / Double(max(theirG.count, 1)) * 30)
+        return min(99, max(12, score))
     }
 
     private static func T(_ id: String, _ title: String, _ artist: String, _ album: String, _ file: String, _ color: String, _ genres: [String], _ quality: String, _ lyrics: [String]) -> Track {

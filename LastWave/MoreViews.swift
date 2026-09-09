@@ -387,6 +387,20 @@ struct FriendView: View {
                     Text(f.name).font(.largeTitle.weight(.semibold)).foregroundStyle(LW.fg).padding(.horizontal, 16)
                     Text("@\(f.handle) · \(formatCompact(f.scrobbles)) scrobbles").foregroundStyle(LW.muted).padding(.horizontal, 16)
                     Text(f.bio).padding(.horizontal, 16).foregroundStyle(LW.fg)
+                    let score = Catalog.compatibility(friend: f, liked: player.liked, recent: player.recent)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("MUSIC COMPATIBILITY").font(.system(size: 11, weight: .medium)).tracking(1.2).foregroundStyle(LW.muted)
+                        Text("\(score)%").font(.system(size: 32, weight: .semibold, design: .rounded)).foregroundStyle(LW.fg)
+                        GeometryReader { geo in
+                            Capsule().fill(LW.chip).overlay(alignment: .leading) {
+                                Capsule().fill(LW.tint).frame(width: geo.size.width * CGFloat(score) / 100)
+                            }
+                        }
+                        .frame(height: 6)
+                    }
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(LW.elevated))
+                    .padding(.horizontal, 16)
                     PlayAllButton(ids: f.topTrackIds).padding(.horizontal, 16)
                     Button { player.playStation(f.topTrackIds) } label: {
                         Text("Play \(f.name)’s station")
@@ -398,6 +412,24 @@ struct FriendView: View {
                             .padding(.horizontal, 16)
                     }
                     .buttonStyle(.plain)
+                    Text("Recent scrobbles").font(.headline).foregroundStyle(LW.fg).padding(.horizontal, 16).padding(.top, 8)
+                    ForEach(f.recentIds, id: \.self) { tid in TrackRow(id: tid, queue: f.recentIds) }
+                    Text("Top artists").font(.headline).foregroundStyle(LW.fg).padding(.horizontal, 16).padding(.top, 8)
+                    ForEach(f.topArtistIds, id: \.self) { aid in
+                        if let a = Catalog.artist(aid) {
+                            NavigationLink(value: "artist:\(aid)") {
+                                HStack(spacing: 12) {
+                                    CoverView(color: a.color, title: a.name, corner: 22).frame(width: 48, height: 48)
+                                    VStack(alignment: .leading) {
+                                        Text(a.name).foregroundStyle(LW.fg)
+                                        Text("\(a.listeners) listeners").font(.caption).foregroundStyle(LW.muted)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        }
+                    }
                     ForEach(f.topTrackIds, id: \.self) { tid in TrackRow(id: tid, queue: f.topTrackIds) }
                 }
                 .padding(.bottom, 24)
@@ -479,7 +511,7 @@ struct SettingsView: View {
                 LabeledContent("Loved", value: "\(player.liked.count)")
             }
             Section("About") {
-                LabeledContent("Version", value: "1.2.0")
+                LabeledContent("Version", value: "4.0.0")
                 LabeledContent("Bundle", value: "app.lastwave.player")
                 Text("Streams independent artists (Audius). Downloads save the audio on this iPhone. Not YouTube Music or clashflac.")
                     .font(.footnote)
@@ -509,36 +541,87 @@ struct SettingsView: View {
 
 struct DownloadsView: View {
     @EnvironmentObject var player: Player
+    @State private var tab = 0
     var body: some View {
-        let ids = Catalog.tracks.map(\.id).filter { player.isOffline($0) }
-            + Catalog.cloud.keys.filter { DownloadsFS.exists($0) }
-        let unique = Array(Set(ids))
+        let ids = Array(Set(
+            Catalog.tracks.map(\.id).filter { player.isOffline($0) }
+                + Catalog.cloud.keys.filter { DownloadsFS.exists($0) }
+        ))
+        let bytes = ids.reduce(0) { acc, id in
+            acc + Int((Catalog.track(id)?.duration ?? 180) * 32_000)
+        }
         ScrollView {
-            if unique.isEmpty {
-                VStack(spacing: 8) {
-                    Text("Nothing offline yet")
-                        .font(.headline)
-                        .foregroundStyle(LW.fg)
-                        .padding(.top, 80)
-                    Text("Stream a track, then tap Download. Files save on this iPhone and play with no network.")
-                        .font(.subheadline)
-                        .foregroundStyle(LW.muted)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(byteString(bytes)).font(.system(size: 24, weight: .semibold)).foregroundStyle(LW.fg)
+                    Text("\(ids.count) songs · on this iPhone · \(player.downloading.isEmpty ? "idle" : "downloading…")")
+                        .font(.subheadline).foregroundStyle(LW.muted)
                 }
-            } else {
-                PlayAllButton(ids: unique).padding(16)
-                ForEach(unique, id: \.self) { id in
-                    HStack {
-                        TrackRow(id: id, queue: unique)
-                        Button { player.toggleDownload(id) } label: {
-                            Image(systemName: "trash").foregroundStyle(Color(hex: "c45c5c")).frame(width: 44, height: 44)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 16).fill(LW.elevated))
+                .padding(.horizontal, 16)
+                Picker("", selection: $tab) {
+                    Text("Songs").tag(0)
+                    Text("Albums").tag(1)
+                    Text("Artists").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                if ids.isEmpty {
+                    Text("Stream a track, then tap Download. Files save on this iPhone.")
+                        .foregroundStyle(LW.muted)
+                        .padding(32)
+                } else if tab == 0 {
+                    PlayAllButton(ids: ids).padding(.horizontal, 16)
+                    ForEach(ids, id: \.self) { id in
+                        HStack {
+                            TrackRow(id: id, queue: ids)
+                            Button { player.toggleDownload(id) } label: {
+                                Image(systemName: "trash").foregroundStyle(Color(hex: "c45c5c")).frame(width: 44, height: 44)
+                            }
                         }
+                    }
+                } else if tab == 1 {
+                    let grouped = Dictionary(grouping: ids) { Catalog.track($0)?.albumId ?? "audius" }
+                    ForEach(grouped.keys.sorted(), id: \.self) { k in
+                        let tids = grouped[k] ?? []
+                        HStack {
+                            CoverView(color: Catalog.album(k)?.color ?? "3d5c68", title: Catalog.albumTitle(k), corner: 10)
+                                .frame(width: 56, height: 56)
+                            VStack(alignment: .leading) {
+                                Text(Catalog.albumTitle(k).isEmpty ? "Independent" : Catalog.albumTitle(k)).foregroundStyle(LW.fg)
+                                Text("\(tids.count) songs").font(.caption).foregroundStyle(LW.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                } else {
+                    let grouped = Dictionary(grouping: ids) { Catalog.track($0)?.artistId ?? "" }
+                    ForEach(grouped.keys.sorted(), id: \.self) { k in
+                        let tids = grouped[k] ?? []
+                        HStack {
+                            CoverView(color: Catalog.artist(k)?.color ?? "3d5c68", title: Catalog.artistName(k), corner: 22)
+                                .frame(width: 56, height: 56)
+                            VStack(alignment: .leading) {
+                                Text(Catalog.artistName(k)).foregroundStyle(LW.fg)
+                                Text("\(tids.count) songs").font(.caption).foregroundStyle(LW.muted)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
                     }
                 }
             }
+            .padding(.vertical, 12)
         }
         .background(LW.bg)
         .navigationTitle("Downloads")
+    }
+
+    func byteString(_ n: Int) -> String {
+        if n < 1_048_576 { return "\(n / 1024) KB" }
+        return String(format: "%.1f MB", Double(n) / 1_048_576)
     }
 }

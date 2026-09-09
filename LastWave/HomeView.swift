@@ -10,9 +10,12 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     header
                     stats
+                    scrobbleHero
                     genreCard
-                    albums
-                    liveRow
+                    listenAgain
+                    quickPicks
+                    albumsForYou
+                    newReleases
                     filterBar
                     VStack(spacing: 0) {
                         ForEach(player.listIds, id: \.self) { id in
@@ -24,7 +27,10 @@ struct HomeView: View {
             }
             .background(LW.bg)
             .navigationBarHidden(true)
-            .task { if player.trending.isEmpty { await player.loadTrending() } }
+            .task {
+                if player.trending.isEmpty { await player.loadTrending() }
+                if player.releases.isEmpty { await player.loadMoreReleases() }
+            }
             .navigationDestination(for: String.self) { key in
                 dest(key)
             }
@@ -70,6 +76,43 @@ struct HomeView: View {
         .padding(.horizontal, 16)
     }
 
+    var scrobbleHero: some View {
+        VStack(spacing: 8) {
+            Button { path.append("friends") } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(player.scrobbles.formatted())
+                            .font(.system(size: 34, weight: .semibold, design: .rounded))
+                            .foregroundStyle(LW.fg)
+                        Text("Scrobbles").font(.system(size: 14)).foregroundStyle(LW.muted)
+                    }
+                    Spacer()
+                    Circle().fill(LW.accent).frame(width: 44, height: 44)
+                        .overlay(Image(systemName: "chevron.right").foregroundStyle(LW.bg))
+                }
+                .padding(20)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(hex: "2a3940")))
+            }
+            .buttonStyle(.plain)
+            HStack(spacing: 8) {
+                statChip("\(Catalog.tracks.count + player.trending.count)", "Tracks")
+                statChip("\(Catalog.artists.count)", "Artists")
+                statChip("\(Catalog.albums.count)", "Albums")
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    func statChip(_ n: String, _ l: String) -> some View {
+        VStack(spacing: 2) {
+            Text(n).font(.system(size: 18, weight: .semibold)).foregroundStyle(LW.fg)
+            Text(l).font(.system(size: 11)).foregroundStyle(LW.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(LW.elevated))
+    }
+
     var genreCard: some View {
         Button { path.append("genres") } label: {
             HStack {
@@ -85,43 +128,30 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
-        .padding(.top, 4)
     }
 
-    var albums: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(Catalog.albums) { a in
-                    Button { path.append("album:\(a.id)") } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            CoverView(color: a.color, title: a.title, corner: 12)
-                                .frame(width: 132, height: 132)
-                            Text(a.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(LW.fg).lineLimit(1)
-                            Text(Catalog.artistName(a.artistId)).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
-                        }
-                        .frame(width: 132)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-        }
+    var listenAgain: some View {
+        rail("Listen again", tracks: player.recent.compactMap(Catalog.track), live: false)
     }
 
-    var liveRow: some View {
+    var quickPicks: some View {
+        rail("Quick picks", tracks: Array((player.trending.isEmpty ? Catalog.tracks : player.trending).prefix(12)), live: true)
+    }
+
+    func rail(_ title: String, tracks: [Track], live: Bool) -> some View {
         Group {
-            if !player.trending.isEmpty {
+            if !tracks.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("Streaming now").font(.system(size: 20, weight: .semibold)).foregroundStyle(LW.fg)
+                        Text(title).font(.system(size: 20, weight: .semibold)).foregroundStyle(LW.fg)
                         Spacer()
-                        Text("Live").font(.caption.weight(.semibold)).foregroundStyle(LW.tint)
+                        if live { Text("Live").font(.caption.weight(.semibold)).foregroundStyle(LW.tint) }
                     }
                     .padding(.horizontal, 16)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(player.trending.prefix(16)) { t in
-                                Button { player.play(t.id, queue: player.trending.map(\.id)) } label: {
+                            ForEach(tracks.prefix(16)) { t in
+                                Button { player.play(t.id, queue: tracks.map(\.id)) } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         CoverView(color: t.color, title: t.title, corner: 12, artworkURL: t.artworkURL)
                                             .frame(width: 132, height: 132)
@@ -136,7 +166,58 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                     }
                 }
-                .padding(.top, 8)
+            }
+        }
+    }
+
+    var albumsForYou: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Albums for you").font(.system(size: 20, weight: .semibold)).foregroundStyle(LW.fg).padding(.horizontal, 16)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(Catalog.albums) { a in
+                        Button { path.append("album:\(a.id)") } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                CoverView(color: a.color, title: a.title, corner: 12)
+                                    .frame(width: 132, height: 132)
+                                Text(a.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(LW.fg).lineLimit(1)
+                                Text(Catalog.artistName(a.artistId)).font(.system(size: 12)).foregroundStyle(LW.muted).lineLimit(1)
+                            }
+                            .frame(width: 132)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    var newReleases: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("New releases").font(.system(size: 20, weight: .semibold)).foregroundStyle(LW.fg)
+                Spacer()
+                Text("Live").font(.caption.weight(.semibold)).foregroundStyle(LW.tint)
+            }
+            .padding(.horizontal, 16)
+            let list = player.releases.isEmpty ? player.trending : player.releases
+            ForEach(list.prefix(8)) { t in
+                TrackRow(id: t.id, queue: list.map(\.id))
+            }
+            if !player.releasesDone {
+                Button {
+                    Task { await player.loadMoreReleases() }
+                } label: {
+                    Text("Load more")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LW.fg)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(LW.elevated))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -182,14 +263,12 @@ struct HomeView: View {
         else if key == "genres" { GenresView() }
         else if key == "friends" { FriendsView() }
         else if key == "settings" { SettingsView() }
+        else if key == "downloads" { DownloadsView() }
         else if key.hasPrefix("album:") { AlbumView(id: String(key.dropFirst(6))) }
         else if key.hasPrefix("artist:") { ArtistView(id: String(key.dropFirst(7))) }
         else if key.hasPrefix("playlist:") { PlaylistView(id: String(key.dropFirst(9))) }
         else if key.hasPrefix("friend:") { FriendView(id: String(key.dropFirst(7))) }
-        else if key.hasPrefix("genre:") {
-            let g = String(key.dropFirst(6))
-            GenreTracksView(genre: g)
-        }
+        else if key.hasPrefix("genre:") { GenreTracksView(genre: String(key.dropFirst(6))) }
         else { Text("Missing").foregroundStyle(LW.muted) }
     }
 }

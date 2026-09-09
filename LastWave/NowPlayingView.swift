@@ -115,6 +115,13 @@ struct NowPlayingView: View {
                                 .frame(width: 40, height: 40)
                                 .background(Circle().fill(LW.elevated))
                         }
+                        Button { player.lyricsFull = true } label: {
+                            Text("Full")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(LW.fg)
+                                .padding(.horizontal, 12).padding(.vertical, 8)
+                                .background(Capsule().fill(LW.elevated))
+                        }
                         RoutePicker()
                             .frame(width: 40, height: 40)
                         if let m = player.sleepMinutes {
@@ -133,6 +140,11 @@ struct NowPlayingView: View {
         }
         .sheet(isPresented: $player.queueOpen) {
             QueueView().environmentObject(player).presentationDetents([.medium, .large]).preferredColorScheme(.dark)
+        }
+        .fullScreenCover(isPresented: $player.lyricsFull) {
+            if let t = player.current {
+                FullscreenLyrics(track: t).environmentObject(player).preferredColorScheme(.dark)
+            }
         }
     }
 }
@@ -161,21 +173,49 @@ struct LyricsView: View {
         return idx
     }
 
+    var words: [(t: Double, text: String, line: Int)] {
+        var out: [(t: Double, text: String, line: Int)] = []
+        for (i, line) in track.lyrics.enumerated() {
+            let parts = line.text.split(separator: " ").map(String.init)
+            guard !parts.isEmpty else { continue }
+            let nextT = i + 1 < track.lyrics.count ? track.lyrics[i + 1].t : line.t + 4
+            let span = max(0.25, nextT - line.t)
+            for (j, w) in parts.enumerated() {
+                out.append((line.t + span * Double(j) / Double(parts.count), w, i))
+            }
+        }
+        return out
+    }
+
+    var activeWord: Int {
+        var idx = 0
+        for (i, w) in words.enumerated() where w.t <= player.currentTime { idx = i }
+        return idx
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: player.lyricsStyle == .kineticSlide ? 22 : 18) {
                     ForEach(Array(track.lyrics.enumerated()), id: \.offset) { i, line in
                         let on = i == active
-                        Text(line.text)
-                            .font(.system(size: on ? 28 : 22, weight: on ? .semibold : .regular))
-                            .foregroundStyle(on ? LW.fg : LW.muted.opacity(player.lyricsStyle == .karaokePulse ? 0.38 : 0.7))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(i)
-                            .scaleEffect(on && player.lyricsStyle == .appleFluid ? 1.0 : (on ? 1.0 : 0.96), anchor: .leading)
-                            .offset(x: player.lyricsStyle == .kineticSlide && !on ? 12 : 0)
-                            .opacity(player.lyricsStyle == .kineticSlide && i > active + 4 ? 0.35 : 1)
-                            .animation(.easeOut(duration: 0.28), value: active)
+                        let rtl = line.text.contains(where: { $0.unicodeScalars.contains(where: { $0.value >= 0x0600 && $0.value <= 0x06FF || $0.value >= 0x0590 && $0.value <= 0x05FF }) })
+                        Group {
+                            if (player.lyricsStyle == .wordSpotlight || player.lyricsStyle == .rtlCascade), on {
+                                wordLine(i, rtl: rtl || player.lyricsStyle == .rtlCascade)
+                            } else {
+                                Text(line.text)
+                                    .font(.system(size: on ? 28 : 22, weight: on ? .semibold : .regular))
+                                    .foregroundStyle(on ? LW.fg : LW.muted.opacity(player.lyricsStyle == .karaokePulse ? 0.38 : 0.7))
+                                    .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(i)
+                        .scaleEffect(on && (player.lyricsStyle == .appleFluid || player.lyricsStyle == .pulseWave) ? 1.04 : (on ? 1.0 : 0.96), anchor: .leading)
+                        .offset(x: player.lyricsStyle == .kineticSlide && !on ? 12 : 0)
+                        .opacity(player.lyricsStyle == .driftFade && i < active ? 0.3 : (player.lyricsStyle == .kineticSlide && i > active + 4 ? 0.35 : 1))
+                        .animation(.easeOut(duration: 0.28), value: active)
                     }
                 }
                 .padding(.horizontal, 28)
@@ -183,6 +223,45 @@ struct LyricsView: View {
             .onChange(of: active) { _, n in
                 withAnimation { proxy.scrollTo(n, anchor: .center) }
             }
+        }
+    }
+
+    func wordLine(_ i: Int, rtl: Bool) -> some View {
+        let lineWords = words.filter { $0.line == i }
+        return HStack(spacing: 6) {
+            ForEach(Array(lineWords.enumerated()), id: \.offset) { j, w in
+                let global = words.firstIndex(where: { $0.t == w.t && $0.text == w.text }) ?? 0
+                Text(w.text)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(global <= activeWord ? LW.fg : LW.muted.opacity(0.45))
+            }
+        }
+        .environment(\.layoutDirection, rtl ? .rightToLeft : .leftToRight)
+    }
+}
+
+struct FullscreenLyrics: View {
+    @EnvironmentObject var player: Player
+    let track: Track
+    var active: Int {
+        var idx = 0
+        for (i, line) in track.lyrics.enumerated() where line.t <= player.currentTime { idx = i }
+        return idx
+    }
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            LW.bg.ignoresSafeArea()
+            Button { player.lyricsFull = false } label: {
+                Image(systemName: "xmark").foregroundStyle(LW.fg).frame(width: 44, height: 44)
+            }
+            .padding()
+            let line = track.lyrics.indices.contains(active) ? track.lyrics[active].text : "…"
+            Text(line)
+                .font(.system(size: 32, weight: .semibold))
+                .foregroundStyle(LW.fg)
+                .multilineTextAlignment(.center)
+                .padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

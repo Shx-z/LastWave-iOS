@@ -8,8 +8,8 @@ enum StreamAPI {
         URL(string: "\(root)/tracks/\(audiusId)/stream?app_name=\(app)")
     }
 
-    static func trending(limit: Int = 24) async -> [Track] {
-        await fetch("\(root)/tracks/trending?app_name=\(app)&limit=\(limit)")
+    static func trending(limit: Int = 24, offset: Int = 0, time: String = "week") async -> [Track] {
+        await fetch("\(root)/tracks/trending?app_name=\(app)&limit=\(limit)&offset=\(offset)&time=\(time)")
     }
 
     static func search(_ q: String, limit: Int = 24) async -> [Track] {
@@ -22,7 +22,7 @@ enum StreamAPI {
         let a = artist.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? artist
         guard let url = URL(string: "https://lrclib.net/api/search?track_name=\(t)&artist_name=\(a)") else { return [] }
         var req = URLRequest(url: url)
-        req.setValue("LastWave/1.2 (iOS)", forHTTPHeaderField: "User-Agent")
+        req.setValue("LastWave/4.0 (iOS)", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
         let synced = (arr.first?["syncedLyrics"] as? String) ?? ""
